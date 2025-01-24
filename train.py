@@ -1,7 +1,8 @@
 # training.py
 import os
 import torch
-from transformers import AutoTokenizer, IterableDataset
+from transformers import AutoTokenizer
+from torch.utils.data import IterableDataset
 from datasets import load_dataset
 from model import SmollM
 from torchinfo import summary
@@ -32,6 +33,41 @@ def generate_tokens(model, tokenizer, prompt, max_length=50, device="cuda"):
                 break
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
+
+# Save the model, optimizer, scheduler, and training state
+def save_checkpoint(config, model, optimizer, scheduler, step, loss):
+    checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pt")
+    checkpoint = {
+        'model_state_dict': model.state_dict(),  # Save model weights
+        'optimizer_state_dict': optimizer.state_dict(),  # Save optimizer state
+        'scheduler_state_dict': scheduler.state_dict() if scheduler else None,  # Save scheduler state (optional)
+        'step': step,  # Save current training step
+        'loss': loss,  # Save the most recent loss
+        'config': config  # Save training configuration for reference
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print(f"Checkpoint saved at {checkpoint_path}")
+
+
+# Load checkpoint and resume training
+def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])  # Load model weights
+
+    if optimizer:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])  # Load optimizer state
+
+    if scheduler and checkpoint.get('scheduler_state_dict'):
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])  # Load scheduler state
+
+    step = checkpoint['step']  # Resume training step
+    loss = checkpoint.get('loss', None)  # Get last loss (if saved)
+    print(f"Checkpoint loaded from {checkpoint_path}, resuming from step {step}")
+
+    return step, loss
+
+
+
 def train(config):
 
     ## Speed up with malmul
@@ -51,13 +87,6 @@ def train(config):
 
     tokenizer = AutoTokenizer.from_pretrained(config['tokenizer']['tokenizer_name_or_path'])
 
-    # Load checkpoint if available
-    resume_checkpoint_path = config['checkpoints']['resume_checkpoint_path']
-    start_step = 0
-    if resume_checkpoint_path and os.path.exists(resume_checkpoint_path):
-        model.load_state_dict(torch.load(resume_checkpoint_path))
-        start_step = int(resume_checkpoint_path.split('_')[-1].split('.')[0])
-        print(f"Resumed training from checkpoint: {resume_checkpoint_path} at step {start_step}")
 
     # Load data with streaming
     train_dataset = load_data_stream(
@@ -93,6 +122,12 @@ def train(config):
     ### Torch Compile applied. Comment it on mac and windows
     model = torch.compile(model)
 
+    # Load checkpoint if available
+    resume_checkpoint_path = config['checkpoints']['resume_checkpoint_path']
+    start_step = 0
+    if resume_checkpoint_path and os.path.exists(resume_checkpoint_path):
+        start_step, loss = load_checkpoint(resume_checkpoint_path, model, optimizer=None, scheduler=None)
+
     max_steps = config['tokens']['train_steps']
     sample_prompt = "This is a sample input text for validation."
 
@@ -119,12 +154,12 @@ def train(config):
             print(f"Step {step}, Loss: {loss.item()}")
 
         if step % config['checkpoints']['checkpoint_interval'] == 0:
-            checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pt")
+            checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pth")
             torch.save(model.state_dict(), checkpoint_path)
 
         if step % 500 == 0:
             generated_text = generate_tokens(model, tokenizer, sample_prompt, max_length=50, device=device)
-            print(f"Step {step}, Generated text: {generated_text}")
+            print(f"Validation: (Step {step}), Generated text: {generated_text}")
 
     print("Training complete.")
 
