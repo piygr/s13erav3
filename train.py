@@ -46,7 +46,7 @@ def generate_tokens(model, tokenizer, prompt, max_length=50, device="cuda"):
 
 # Save the model, optimizer, scheduler, and training state
 def save_checkpoint(config, model, optimizer, scheduler, step, loss):
-    checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pt")
+    checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pth")
     checkpoint = {
         'model_state_dict': model.state_dict(),  # Save model weights
         'optimizer_state_dict': optimizer.state_dict(),  # Save optimizer state
@@ -143,7 +143,7 @@ def train(config):
         start_step, loss = load_checkpoint(resume_checkpoint_path, model, optimizer=None, scheduler=None)
 
     max_steps = config['tokens']['train_steps']
-    sample_prompt = "This is a sample input text for validation."
+    sample_prompt = "This is a sample"
 
     for step, batch in enumerate(train_dataloader, start=start_step):
         if step >= max_steps:
@@ -168,8 +168,8 @@ def train(config):
             print(f"Step {step}, Loss: {loss.item()}")
 
         if step % config['checkpoints']['checkpoint_interval'] == 0:
-            checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pth")
-            torch.save(model.state_dict(), checkpoint_path)
+            #checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pth")
+            save_checkpoint(config, model, optimizer, None, step, loss)
 
         if step % config['tokens']['val_check_interval'] == 0:
             generated_text = generate_tokens(model, tokenizer, sample_prompt, max_length=50, device=device)
