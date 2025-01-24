@@ -146,7 +146,7 @@ def train(config):
     sample_prompt = "This is a sample"
 
     for step, batch in enumerate(train_dataloader, start=start_step):
-        if step >= max_steps:
+        if step > max_steps:
             print("Reached maximum training steps.")
             break
 
