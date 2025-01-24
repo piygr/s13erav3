@@ -7,17 +7,27 @@ from datasets import load_dataset
 from model import SmollM
 from torchinfo import summary
 
-def load_data_stream(dataset_name, split, tokenizer, block_size):
+
+def load_data_stream(dataset_name, split, tokenizer, block_size, config=None):
     def preprocess(examples):
         return tokenizer(examples['text'], truncation=True, padding="max_length", max_length=block_size)
 
-    dataset = load_dataset(dataset_name, split=split, streaming=True)
+    if tokenizer.pad_token is None:
+        if tokenizer.eos_token:
+            tokenizer.pad_token = tokenizer.eos_token  # Use EOS token as padding if available
+        else:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})  # Add a new [PAD] token
+            print(f"Added new padding token: {tokenizer.pad_token}")
+
+    dataset = load_dataset(dataset_name, name=config, split=split, streaming=True)
     dataset = dataset.map(preprocess, batched=True, remove_columns=["text"])
     return dataset
+
 
 def collate_fn(batch):
     input_ids = torch.stack([torch.tensor(example["input_ids"]) for example in batch])
     return input_ids
+
 
 def generate_tokens(model, tokenizer, prompt, max_length=50, device="cuda"):
     """Generates output tokens based on a given prompt."""
