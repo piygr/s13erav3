@@ -1,0 +1,135 @@
+# training.py
+import os
+import torch
+from transformers import AutoTokenizer, IterableDataset
+from datasets import load_dataset
+from model import SmollM
+from torchinfo import summary
+
+def load_data_stream(dataset_name, split, tokenizer, block_size):
+    def preprocess(examples):
+        return tokenizer(examples['text'], truncation=True, padding="max_length", max_length=block_size)
+
+    dataset = load_dataset(dataset_name, split=split, streaming=True)
+    dataset = dataset.map(preprocess, batched=True, remove_columns=["text"])
+    return dataset
+
+def collate_fn(batch):
+    input_ids = torch.stack([torch.tensor(example["input_ids"]) for example in batch])
+    return input_ids
+
+def generate_tokens(model, tokenizer, prompt, max_length=50, device="cuda"):
+    """Generates output tokens based on a given prompt."""
+    model.eval()
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    with torch.no_grad():
+        outputs = input_ids
+        for _ in range(max_length):
+            logits = model(outputs[:, -1:])
+            next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+            outputs = torch.cat([outputs, next_token], dim=1)
+            if next_token.item() == tokenizer.eos_token_id:
+                break
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+def train(config):
+
+    ## Speed up with malmul
+    torch.set_float32_matmul_precision('high')
+
+    # Load model and tokenizer
+    model = SmollM(config['model']['model_config'])
+
+    summary(
+        model,
+        input_size=(1, config['tokens']['sequence_length']),  # Example input size: (batch_size=1, seq_length=128)
+        dtypes=[torch.long],  # Specify input data type
+        col_names=["input_size", "output_size", "num_params", "trainable"],
+        col_width=20,  # Adjust column width for better readability
+        depth=3  # Adjust depth to show nested layers
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(config['tokenizer']['tokenizer_name_or_path'])
+
+    # Load checkpoint if available
+    resume_checkpoint_path = config['checkpoints']['resume_checkpoint_path']
+    start_step = 0
+    if resume_checkpoint_path and os.path.exists(resume_checkpoint_path):
+        model.load_state_dict(torch.load(resume_checkpoint_path))
+        start_step = int(resume_checkpoint_path.split('_')[-1].split('.')[0])
+        print(f"Resumed training from checkpoint: {resume_checkpoint_path} at step {start_step}")
+
+    # Load data with streaming
+    train_dataset = load_data_stream(
+        "HuggingFaceTB/cosmopedia-v2",
+        split="train",
+        tokenizer=tokenizer,
+        block_size=config['tokens']['sequence_length']
+    )
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=config['tokens']['micro_batch_size'],
+        collate_fn=collate_fn
+    )
+
+    # Optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config['optimizer']['learning_rate_scheduler']['learning_rate'],
+        betas=(
+            config['optimizer']['optimizer_factory']['adam_beta1'],
+            config['optimizer']['optimizer_factory']['adam_beta2']
+        ),
+        eps=config['optimizer']['optimizer_factory']['adam_eps'],
+        weight_decay=config['optimizer']['weight_decay']
+    )
+
+    # Training loop
+    model.train()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
+    ### Torch Compile applied. Comment it on mac and windows
+    model = torch.compile(model)
+
+    max_steps = config['tokens']['train_steps']
+    sample_prompt = "This is a sample input text for validation."
+
+    for step, batch in enumerate(train_dataloader, start=start_step):
+        if step >= max_steps:
+            print("Reached maximum training steps.")
+            break
+
+        batch = batch.to(device)
+        optimizer.zero_grad()
+
+        # Forward pass
+        #### AutoCast
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            outputs = model(batch)
+            loss = torch.nn.functional.cross_entropy(outputs.view(-1, config['model']['model_config']['vocab_size']), batch.view(-1))
+
+        # Backward pass
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config['optimizer']['clip_grad'])
+        optimizer.step()
+
+        if step % config['logging']['iteration_step_info_interval'] == 0:
+            print(f"Step {step}, Loss: {loss.item()}")
+
+        if step % config['checkpoints']['checkpoint_interval'] == 0:
+            checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pt")
+            torch.save(model.state_dict(), checkpoint_path)
+
+        if step % 500 == 0:
+            generated_text = generate_tokens(model, tokenizer, sample_prompt, max_length=50, device=device)
+            print(f"Step {step}, Generated text: {generated_text}")
+
+    print("Training complete.")
+
+if __name__ == "__main__":
+    import yaml
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    train(config)
