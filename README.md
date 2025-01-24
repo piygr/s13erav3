@@ -11,6 +11,14 @@ S13ERAV3 is a reverse-engineered language model based on the configuration extra
 - Checkpointing system to save and resume training progress.
 
 ## Model Summary
+
+```
+Total trainable weights : 134,515,008 (Emeddinng & lm_head have shared weights hence, 162,826,560 - 28,311,552 = 134,515,008)
+
+# Share weights between embedding and lm_head
+self.lm_head.weight = self.embedding.weight
+```
+
 ```plaintext
 Model Name: S13ERAV3
 Base Architecture: Transformer-based
@@ -59,8 +67,10 @@ SmollM                                   [1, 2048, 49152]          --           
 ├─LlamaRMSNorm: 1-4                      [1, 2048, 576]            576                       True
 ├─Linear: 1-5                            [1, 2048, 49152]          28,311,552                True
 ===================================================================================================================
+[Please note that torchsummary doesn't give the actual number as the shared parameters are counted separately.]
+
 Total params: 162,826,560
-Trainable params: 162,826,560
+Trainable params: 162,826,560 
 Non-trainable params: 0
 Total mult-adds (M): 162.83
 ===================================================================================================================
