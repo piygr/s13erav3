@@ -140,10 +140,10 @@ def train(config):
     resume_checkpoint_path = config['checkpoints']['resume_checkpoint_path']
     start_step = 0
     if resume_checkpoint_path and os.path.exists(resume_checkpoint_path):
-        start_step, loss = load_checkpoint(resume_checkpoint_path, model, optimizer=None, scheduler=None)
+        start_step, loss = load_checkpoint(resume_checkpoint_path, model, optimizer)
 
     max_steps = config['tokens']['train_steps']
-    sample_prompt = "This is a sample"
+    sample_prompt = "This is a"
 
     for step, batch in enumerate(train_dataloader, start=start_step):
         if step > max_steps:
@@ -157,7 +157,16 @@ def train(config):
         #### AutoCast
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
             outputs = model(batch)
-            loss = torch.nn.functional.cross_entropy(outputs.view(-1, config['model']['model_config']['vocab_size']), batch.view(-1))
+            # Shift the targets (labels) by 1
+            shifted_logits = outputs[:, :-1, :].contiguous()  # Remove the last token from outputs
+            shifted_labels = batch[:, 1:].contiguous()  # Remove the first token from labels
+
+            # Flatten the tensors for loss computation
+            logits_flat = shifted_logits.view(-1, config['model']['model_config']['vocab_size'])
+            labels_flat = shifted_labels.view(-1)
+
+            # Compute the cross-entropy loss
+            loss = torch.nn.functional.cross_entropy(logits_flat, labels_flat)
 
         # Backward pass
         loss.backward()
@@ -176,6 +185,7 @@ def train(config):
             print(f"Validation: (Step {step}), Generated text: {generated_text}")
 
     print("Training complete.")
+
 
 if __name__ == "__main__":
     import yaml
