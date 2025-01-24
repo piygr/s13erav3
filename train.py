@@ -146,8 +146,11 @@ def train(config):
     sample_prompt = "This is a"
 
     for step, batch in enumerate(train_dataloader, start=start_step):
-        if step > max_steps:
+        if step >= max_steps:
             print("Reached maximum training steps.")
+            save_checkpoint(config, model, optimizer, None, step, loss)
+            generated_text = generate_tokens(model, tokenizer, sample_prompt, max_length=50, device=device)
+            print(f"Validation: (Step {step}), Generated text: {generated_text}")
             break
 
         batch = batch.to(device)
