@@ -89,11 +89,15 @@ def train(config):
 
 
     # Load data with streaming
+    config_name = "cosmopedia-v2"
+
+    # Load the dataset with the specified config
     train_dataset = load_data_stream(
-        "HuggingFaceTB/cosmopedia-v2",
+        dataset_name="HuggingFaceTB/cosmopedia-v2",
         split="train",
-        tokenizer=tokenizer,
-        block_size=config['tokens']['sequence_length']
+        tokenizer=tokenizer,  # Ensure tokenizer is defined
+        block_size=128,  # Adjust block size as needed
+        config=config_name  # Pass the configuration explicitly
     )
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -120,7 +124,7 @@ def train(config):
     model.to(device)
 
     ### Torch Compile applied. Comment it on mac and windows
-    model = torch.compile(model)
+    #model = torch.compile(model)
 
     # Load checkpoint if available
     resume_checkpoint_path = config['checkpoints']['resume_checkpoint_path']
