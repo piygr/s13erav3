@@ -157,7 +157,7 @@ def train(config):
             checkpoint_path = os.path.join(config['checkpoints']['checkpoints_path'], f"checkpoint_{step}.pth")
             torch.save(model.state_dict(), checkpoint_path)
 
-        if step % 500 == 0:
+        if step % config['tokens']['val_check_interval'] == 0:
             generated_text = generate_tokens(model, tokenizer, sample_prompt, max_length=50, device=device)
             print(f"Validation: (Step {step}), Generated text: {generated_text}")
 

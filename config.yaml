@@ -2,7 +2,7 @@ checkpoints:
   checkpoint_interval: 2000
   checkpoints_path: checkpoints
   checkpoints_path_is_shared_file_system: false
-  resume_checkpoint_path: './checkpoints'
+  resume_checkpoint_path: null
   save_final_state: false
   save_initial_state: false
 data_stages:
@@ -96,4 +96,4 @@ tokens:
   micro_batch_size: 8
   sequence_length: 2048
   train_steps: 5000
-  val_check_interval: 1000
+  val_check_interval: 500
